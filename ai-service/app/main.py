@@ -1,81 +1,56 @@
 from app.embeddings.embedder import embedder
-from app.vector_store.faiss_store import FAISSStore
 from app.generation.generator import generate_answer
 from app.ingestion.pdf_loader import load_pdf
 from app.ingestion.chunker import chunk_text
+from app.vector_store.chroma_store import ChromaStore
 
-import os
-import pickle
-import hashlib
-import numpy as np
+store = ChromaStore()
 
-store = FAISSStore(dim=384)
+pdf_path = "/home/ritesh/Documents/doc/upprpb.in_#_pscexamservice_candidate-View-Application_id=1b5353ac-5641-4412-a4b9-9256f61bb247&version=V1.pdf"
 
-pdf_path = "/home/ritesh/Documents/Ritesh_Yadav_senior_software_developer.pdf"
+# ✅ Reset and add new document
+print("⚡ Resetting DB and adding new document...")
+store.client.delete_collection("documents")
+store.collection = store.client.get_or_create_collection("documents")
 
-CACHE_DIR = "cache"
-MAX_CACHE_FILES = 5
+text = load_pdf(pdf_path)
+chunks = chunk_text(text)
+embeddings = embedder.encode(chunks)
 
-os.makedirs(CACHE_DIR, exist_ok=True)
-
-def get_cache_name(file_path):
-    with open(file_path, "rb") as f:
-        file_hash = hashlib.md5(f.read()).hexdigest()
-    return os.path.join(CACHE_DIR, f"{file_hash}.pkl")
-
-def cleanup_cache():
-    files = sorted(
-        [os.path.join(CACHE_DIR, f) for f in os.listdir(CACHE_DIR)],
-        key=os.path.getmtime
-    )
-
-    while len(files) > MAX_CACHE_FILES:
-        os.remove(files[0])
-        files.pop(0)
-
-CACHE_FILE = get_cache_name(pdf_path)
-
-# ✅ SINGLE cache block
-if os.path.exists(CACHE_FILE):
-    print("✅ Loading from cache...")
-    with open(CACHE_FILE, "rb") as f:
-        chunks, embeddings = pickle.load(f)
-else:
-    print("⚡ Processing PDF...")
-    text = load_pdf(pdf_path)
-    chunks = chunk_text(text)
-    embeddings = embedder.encode(chunks)
-
-    with open(CACHE_FILE, "wb") as f:
-        pickle.dump((chunks, embeddings), f)
-
-    cleanup_cache()
-
-# store in FAISS
 store.add(embeddings, chunks)
 
-# query
-query = "who is Ritesh yadav?"
+# ✅ Query
+query = "What is the Address of the Ritesh in this document?"
 query_embedding = embedder.encode(query).astype("float32")
 
-# hybrid search
-results = store.search(query_embedding, query, k=5)
-retrieved_chunks = [r[0] for r in results]
+# ✅ Hybrid retrieval: vector search + keyword fallback
+retrieved_chunks = store.search(query_embedding, k=8)
 
-# ✅ optimized reranking
-retrieved_set = set(retrieved_chunks)
+# ✅ Keyword fallback — find chunks containing key terms related to the query
+query_words = ["name", "applicant", "full name", "dob", "date of birth", "personal"]
+for chunk in chunks:
+    chunk_lower = chunk.lower()
+    if any(word in chunk_lower for word in query_words) and chunk not in retrieved_chunks:
+        retrieved_chunks.append(chunk)
 
-scored = []
-for chunk, emb in zip(chunks, embeddings):
-    if chunk in retrieved_set:
-        score = np.dot(query_embedding, emb)
-        scored.append((chunk, score))
+# Deduplicate and limit
+seen = set()
+unique_chunks = []
+for c in retrieved_chunks:
+    if c not in seen:
+        seen.add(c)
+        unique_chunks.append(c)
+retrieved_chunks = unique_chunks[:12]
 
-scored.sort(key=lambda x: x[1], reverse=True)
-retrieved_chunks = [s[0] for s in scored[:3]]
+print(f"\n--- {len(retrieved_chunks)} chunks sent to LLM ---")
+# for i, c in enumerate(retrieved_chunks):
+#     print(f"\n[Chunk {i+1}]")
+#     print(c[:200], "...")
 
-# LLM
+# ✅ Generate answer
 answer = generate_answer(query, retrieved_chunks)
 
+print("\n" + "="*60)
 print("Query:", query)
+print("="*60)
 print("Answer:", answer)

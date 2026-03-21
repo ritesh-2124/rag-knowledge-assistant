@@ -9,5 +9,6 @@ def load_pdf(file_path):
         text += page.extract_text() + "\n"
 
     # 🔥 CLEAN TEXT
-    text = re.sub(r'\s+', ' ', text)   # remove extra spaces
+    text = re.sub(r'\s+', ' ', text)           # remove extra spaces
+    text = re.sub(r'(UPP\w+\s*){3,}', '', text) # remove repeated registration code noise
     return text

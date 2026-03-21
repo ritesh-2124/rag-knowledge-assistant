@@ -3,25 +3,15 @@ import ollama
 def generate_answer(query, context_docs):
     context = "\n\n".join(context_docs)
 
-    prompt = f"""
-You are an intelligent AI assistant.
+    # Keep prompt short and simple for gemma:2b
+    prompt = f"""Read the text below and answer the question.
+Extract exact values. Do not say "not found".
 
-Use ONLY the provided context to answer the question.
-
-Guidelines:
-- Carefully read the context
-- Identify important entities (names, topics, concepts)
-- Answer accurately based on the content
-- If the answer is not present, say "Not found in document"
-
-Context:
+Text:
 {context}
 
-Question:
-{query}
-
-Answer clearly and completely:
-"""
+Question: {query}
+Answer:"""
 
     response = ollama.chat(
         model="gemma:2b",
